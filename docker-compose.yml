@@ -21,6 +21,28 @@ services:
       timeout: 5s
       retries: 12
 
+  # Shared session store (like prod). auth writes, api reads.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - moodle
+      - auth
+      - api
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
   moodle:
     image: erseco/alpine-moodle:latest
     restart: unless-stopped
@@ -48,32 +70,38 @@ services:
       - moodle_html:/var/www/html
     # no host port needed; Caddy reaches it on the internal network as moodle:8080
 
-  tool:
-    image: php:8.3-cli
+  # auth.lvh.me — handles the LTI launch, writes the session, sets the cookie.
+  auth:
+    build: ./auth            # php:8.4-cli + phpredis (see auth/Dockerfile)
     restart: unless-stopped
     working_dir: /app
-    # dev web server; router = public/index.php, docroot = public
     command: php -S 0.0.0.0:80 -t public public/index.php
     volumes:
-      - ./tool:/app
+      - ./auth:/app
     depends_on:
       - moodle
-    # reachable by Caddy as tool:80; reaches Moodle as http://moodle:8080
+      - redis
+    # reaches Moodle as http://moodle:8080, Redis as redis:6379
 
-  caddy:
-    image: caddy:2-alpine
+  # api.lvh.me — /api/me + /api/logout (reads the shared session; CORS to app).
+  api:
+    build: ./api             # php:8.4-cli + phpredis (see api/Dockerfile)
     restart: unless-stopped
-    depends_on:
-      - moodle
-      - tool
-    ports:
-      - "80:80"
-      - "443:443"
+    working_dir: /app
+    command: php -S 0.0.0.0:80 -t public public/index.php
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./certs:/certs:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./api:/app
+    depends_on:
+      - redis
+
+  # app.lvh.me — the React UI (static bundle from ./app/dist).
+  app:
+    image: php:8.4-cli
+    restart: unless-stopped
+    working_dir: /app
+    command: php -S 0.0.0.0:80 -t dist server.php
+    volumes:
+      - ./app:/app
 
 volumes:
   db_data:

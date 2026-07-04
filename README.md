@@ -10,16 +10,29 @@ The weekend learning curriculum lives in [LTI-WEEKEND.md](LTI-WEEKEND.md).
 
 ## Architecture
 
+Everything sits behind **Caddy** (TLS termination via a trusted mkcert cert). Moodle is
+the **Platform**; the **Tool** is split into three services like a real deployment:
+
 ```
-  browser ──HTTPS:443──► Caddy ──HTTP:8080──► Moodle ──► MariaDB
-                          (TLS term.)         (Platform)   (DB)
+                     ┌─ https://localhost      → Moodle (Platform) → MariaDB
+  browser ─HTTPS:443─┤─ https://auth.lvh.me    → auth  (LTI: validate launch, set session)
+        via Caddy    │─ https://api.lvh.me     → api   (/api/me, /api/logout — reads session)
+                     └─ https://app.lvh.me     → app   (React UI bundle)
+
+  auth + api share the session store — real Redis (as in prod)
+  session cookie is Domain=lvh.me so it's sent to all three subdomains
 ```
 
-- **Caddy** terminates TLS with a locally-trusted mkcert certificate and reverse-proxies to Moodle.
-  Moodle is never exposed directly to the host — only through Caddy.
-- **Moodle** (`erseco/alpine-moodle`) listens on `8080` internally (defined by the image, not us).
-  `SSLPROXY=true` makes it trust Caddy's `X-Forwarded-Proto` so its wwwroot stays `https://localhost`.
-- **MariaDB** holds Moodle's data.
+- **Moodle** (`erseco/alpine-moodle`) — the LMS. Listens on `8080`; `SSLPROXY=true` keeps its
+  wwwroot at `https://localhost`. The tool reaches it server-side at `http://moodle:8080`.
+- **auth** (PHP + `packbackbooks/lti-1p3-tool`) — handles the LTI launch, writes the session,
+  sets the `Domain=lvh.me` cookie, redirects to app.
+- **api** (plain PHP, no deps) — reads the shared session; answers the UI with CORS + credentials.
+- **redis** — the shared session store. `auth` writes `sess:<sid>`; `api` reads the same key.
+  (auth + api each build their own image — `php:8.4-cli` + the **phpredis** extension — from their own `Dockerfile`.)
+- **app** (React 19 / Vite) — the UI; calls `api.lvh.me` cross-origin with `credentials:'include'`.
+- **`*.lvh.me`** resolves to `127.0.0.1` via public DNS (no `/etc/hosts`). We use it instead of
+  `*.localhost` because a shared `Domain=` cookie can't be set on `localhost` (it's a single-label TLD).
 
 ---
 
@@ -36,22 +49,26 @@ The weekend learning curriculum lives in [LTI-WEEKEND.md](LTI-WEEKEND.md).
 # 1. Trust a local certificate authority (one-time, prompts for password/TouchID)
 mkcert -install
 
-# 2. Generate the localhost + tool.localhost cert used by Caddy
+# 2. Generate the cert (localhost + auth/api/app.lvh.me) used by Caddy
 ./setup-certs.sh
 
-# 3. Tool: install deps, generate its signing key, seed local registration config
-docker run --rm -v "$PWD/tool":/app -w /app composer:2 install --ignore-platform-req=ext-*
-openssl genrsa -out tool/keys/private.key 2048 && openssl rsa -in tool/keys/private.key -pubout -out tool/keys/public.key
-cp tool/registration.example.json tool/registration.json   # then fill client_id/deployment_id after Moodle registration
+# 3. auth service: install PHP deps, generate its signing key, seed registration config
+docker run --rm -v "$PWD/auth":/app -w /app composer:2 install --ignore-platform-req=ext-*
+openssl genrsa -out auth/keys/private.key 2048 && openssl rsa -in auth/keys/private.key -pubout -out auth/keys/public.key
+cp auth/registration.example.json auth/registration.json   # then fill client_id/deployment_id after Moodle registration
 
-# 4. Start the stack (first boot installs Moodle — ~1–2 min)
+# 4. app service: install frontend deps + build the React bundle
+docker run --rm -v "$PWD/app":/app -w /app node:22 sh -c 'npm install && npm run build'
+
+# 5. Start the stack (first boot installs Moodle — ~1–2 min)
 docker compose up -d
 
-# 5. Watch it come up; wait for "ready to handle connections"
+# 6. Watch it come up; wait for "ready to handle connections"
 docker compose logs -f moodle
 ```
 
-Then open **https://localhost** — you should get a clean padlock (no warning).
+Then open **https://localhost** (Moodle) — you should get a clean padlock (no warning).
+The tool is launched *from* Moodle; you don't visit `app.lvh.me` directly.
 
 > If the browser still warns, you skipped or need to re-run `mkcert -install`, then fully
 > quit and reopen the browser.
@@ -62,11 +79,17 @@ Then open **https://localhost** — you should get a clean padlock (no warning).
 
 | | |
 |---|---|
-| Moodle URL | https://localhost |
+| Moodle (Platform) | https://localhost |
 | Admin user | `admin` |
 | Admin password | `Moodle123!` |
+| Tool — auth | https://auth.lvh.me (LTI endpoints) |
+| Tool — api | https://api.lvh.me (session API) |
+| Tool — app | https://app.lvh.me (React UI) |
 
 (Credentials are set in [docker-compose.yml](docker-compose.yml) — local lab only, not secrets.)
+
+The Moodle External Tool must point at `https://auth.lvh.me/lti/login` + `/lti/launch`,
+with **Launch container = New window** (the session cookie needs a first-party context).
 
 ---
 
@@ -89,10 +112,12 @@ docker compose exec -T moodle php /var/www/html/admin/cli/cfg.php --name=timezon
 
 ```
 .
-├── docker-compose.yml   # MariaDB + Moodle + Caddy
-├── Caddyfile            # TLS termination + reverse proxy to moodle:8080
-├── setup-certs.sh       # regenerate the localhost cert (per machine)
-├── certs/               # TLS cert + key (gitignored — never committed)
+├── docker-compose.yml   # Moodle + MariaDB + Caddy + redis + auth + api + app
+├── setup-certs.sh       # regenerate the cert (per machine) → caddy/certs
+├── caddy/               # Caddyfile + certs/ (TLS cert + key, gitignored)
+├── auth/                # LTI service — PHP + packback; Dockerfile, public/, src/, keys/, registration
+├── api/                 # session API — plain PHP; Dockerfile, public/, src/SessionStore.php
+├── app/                 # React UI — Vite; src/, builds to app/dist (gitignored)
 ├── LTI-WEEKEND.md       # the LTI 1.3 learning curriculum
 └── README.md            # this file
 ```
@@ -101,7 +126,7 @@ docker compose exec -T moodle php /var/www/html/admin/cli/cfg.php --name=timezon
 
 ## Notes & gotchas
 
-- **Certs are never committed.** `certs/*` is gitignored. Each machine runs `./setup-certs.sh`
+- **Certs are never committed.** `caddy/certs/*` is gitignored. Each machine runs `./setup-certs.sh`
   to mint its own cert (yours is signed by *your* mkcert CA and wouldn't be trusted elsewhere anyway).
 - **`mkcert -install` must be run in your own terminal** — it needs an interactive sudo/TouchID
   prompt and can't be automated.

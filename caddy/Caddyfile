@@ -1,0 +1,24 @@
+# Terminates TLS with the mkcert-trusted cert and proxies to Moodle.
+# Caddy sets X-Forwarded-Proto=https, which Moodle trusts because SSLPROXY=true.
+localhost {
+	tls /certs/localhost.pem /certs/localhost-key.pem
+	reverse_proxy moodle:8080
+}
+
+# The tool, split like PowerNotes: auth handles LTI, app is the UI.
+# On *.lvh.me (resolves to 127.0.0.1) so they share the same registrable domain
+# and a Domain=lvh.me session cookie works across the two subdomains.
+auth.lvh.me {
+	tls /certs/localhost.pem /certs/localhost-key.pem
+	reverse_proxy auth:80
+}
+
+api.lvh.me {
+	tls /certs/localhost.pem /certs/localhost-key.pem
+	reverse_proxy api:80
+}
+
+app.lvh.me {
+	tls /certs/localhost.pem /certs/localhost-key.pem
+	reverse_proxy app:80
+}

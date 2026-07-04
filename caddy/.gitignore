@@ -1,0 +1,4 @@
+# Local TLS certs — NEVER commit private keys (regenerate with ../setup-certs.sh).
+# .gitkeep keeps the folder tracked so the bind mount has a target on fresh clones.
+certs/*
+!certs/.gitkeep

@@ -1,0 +1,9 @@
+# Installed PHP deps (regenerate with `composer install`).
+/vendor/
+
+# The tool's private signing key — never commit.
+/keys/
+
+# Machine-specific registration (client_id/deployment_id from THIS Moodle).
+# registration.example.json is the tracked template; copy it to registration.json.
+/registration.json

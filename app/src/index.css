@@ -1,0 +1,59 @@
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1c2430;
+  background: #f4f6f9;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+
+.wrap { max-width: 760px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+.centered { min-height: 100vh; display: grid; place-content: center; text-align: center; gap: .5rem; padding: 2rem; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .5rem 0 1rem;
+}
+
+.badge {
+  text-transform: uppercase; font-size: .7rem; font-weight: 700; letter-spacing: .04em;
+  padding: .25rem .6rem; border-radius: 999px; color: #fff;
+}
+.badge.instructor { background: #6d28d9; }
+.badge.learner { background: #0f766e; }
+
+.card {
+  background: #fff; border: 1px solid #e4e8ee; border-radius: 12px;
+  padding: 1.25rem 1.5rem; margin-bottom: 1rem;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+}
+.card h1 { margin: 0 0 1rem; font-size: 1.4rem; }
+.card h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
+
+.grid { display: grid; grid-template-columns: auto 1fr; gap: .4rem 1.5rem; margin: 0; }
+.grid dt { color: #667085; }
+.grid dd { margin: 0; }
+
+.panel-instructor { border-left: 4px solid #6d28d9; }
+.panel-learner { border-left: 4px solid #0f766e; }
+
+button {
+  font: inherit; padding: .5rem .9rem; margin: .25rem .5rem .25rem 0;
+  border: 1px solid #cbd2dc; border-radius: 8px; background: #fff; cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: not-allowed; }
+
+.link {
+  background: none; border: none; font: inherit; cursor: pointer;
+  color: #667085; text-decoration: underline; margin-left: .75rem; padding: 0;
+}
+.link:hover { color: #1c2430; }
+
+.muted { color: #667085; font-size: .85rem; }
+code { background: #eef1f6; padding: .1rem .35rem; border-radius: 4px; font-size: .85em; }
+
+summary { cursor: pointer; font-weight: 600; }
+.claims, .err {
+  background: #0d1117; color: #c9d1d9; padding: 1rem; border-radius: 8px;
+  overflow: auto; font-size: .78rem; margin-top: .75rem;
+}
+.err { background: #fee; color: #b00; }

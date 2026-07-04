@@ -2,3 +2,12 @@
 # Regenerate per machine with ./setup-certs.sh (needs mkcert).
 certs/*
 !certs/.gitkeep
+
+# Tool: installed deps and the tool's private signing key — never commit.
+# (composer.lock IS committed — it pins exact versions for reproducible installs.)
+tool/vendor/
+tool/keys/
+
+# Machine-specific registration (client_id/deployment_id from THIS Moodle).
+# Commit registration.example.json as the template; copy it to registration.json locally.
+tool/registration.json

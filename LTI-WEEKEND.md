@@ -98,7 +98,7 @@ All three call *back* into the platform. Auth = OAuth2 **client_credentials**, w
 ## 4. Tooling choices
 
 ### Moodle (Platform) in Docker
-- **Easiest:** `bitnami/moodle` compose — up in minutes.
+- **What this lab uses:** `erseco/alpine-moodle` — self-contained, single image, up fast. (Note: `bitnami/moodle` was **retired by Broadcom in 2025** — don't reach for it.)
 - **Proper dev harness:** `moodlehq/moodle-docker` — supports phpunit/behat, DB choice. Better long-term.
 - Use **Moodle 4.x** (LTI 1.3 is mature). Configure under
   *Site administration → Plugins → Activity modules → External tool → Manage tools → configure a tool manually*.
@@ -108,8 +108,9 @@ All three call *back* into the platform. Auth = OAuth2 **client_credentials**, w
   > Heads-up: `packbackbooks/lti-1-3-php-library` and `packback/lti-1-3-php-library` do NOT exist on Packagist — the `composer require` name is `packbackbooks/lti-1p3-tool`.
 - **`ceLTIc/LTI-PHP`** (Stephen Vickers) — very mature, supports **1.1 and 1.3**, tool + platform, many DB connectors. Heavier; great reference and useful if you ever need 1.1 fallback.
 
-### Test/inspection tools (huge for learning)
-- **saltire** (`suite.saltire.lti.app`) — a test **Tool** *and* test **Platform** that dumps every parameter. Point Moodle at saltire's test tool to validate your Moodle config with **zero code**; or point your tool at saltire's test platform.
+### Test/inspection tools
+- **saltire** (`https://saltire.lti.app`) — a hosted test **Tool** and test **Platform** that dumps every parameter.
+  > ⚠️ **Why we don't use it in this lab:** saltire is **cloud-hosted**, and an LTI launch is **server-to-server** — the tool must fetch the platform's JWKS to verify the launch JWT. saltire's servers can't reach a `localhost` Moodle, so saltire-as-Tool can't validate our launches without exposing Moodle via a tunnel (cloudflared/ngrok). **This lab is fully local (Path A), so we skip saltire** and use our own tool's claim dump as the inspector. (saltire is still useful later the *other* way round: our local tool → saltire's public **platform** works without a tunnel, since local can reach the internet.)
 - 1EdTech **LTI Reference Implementation** (`lti-ri`).
 
 ### The #1 practical gotcha: HTTPS + cookies
@@ -122,15 +123,17 @@ Plan for this early — it's where most people lose an afternoon.
 
 ## 5. Weekend schedule
 
-### Friday night — setup (1–2h)
-- [ ] Skim the 1EdTech LTI 1.3 core spec + the flow diagram above.
-- [ ] Get Moodle running in Docker; log in as admin; create a test course + a student.
-- [ ] Sort the HTTPS story (mkcert+Caddy or ngrok). Confirm Moodle reachable over HTTPS.
+### Friday night — setup (1–2h) ✅ DONE
+- [x] Skim the 1EdTech LTI 1.3 core spec + the flow diagram above.
+- [x] Moodle running in Docker (`erseco/alpine-moodle` + MariaDB + Caddy); admin login; test course "Long Test Course Name" with Bob (Student) + admin (Teacher) — both roles available.
+- [x] HTTPS via **mkcert + Caddy** at `https://localhost` (trusted CA installed, verified end-to-end). See `README.md` for run instructions.
 
-### Saturday AM — understand + first launch
+### Saturday AM — understand + first launch (fully local — Path A)
 - [ ] Re-draw the 4-hop flow from memory.
-- [ ] In Moodle, register **saltire's test tool** and do a launch → inspect the JWT/claims. No code yet; this proves your Moodle config.
-- [ ] Stand up a minimal **PHP tool** (`packback` lib): `/lti/login`, `/lti/launch`, `/lti/jwks`. Get ONE successful `LtiResourceLinkRequest` and dump all claims.
+- [ ] Stand up a minimal **PHP tool** (`packbackbooks/lti-1p3-tool`) in Docker on the **same network as Moodle**, over the existing Caddy HTTPS: `/lti/login`, `/lti/launch`, `/lti/jwks`. Both sides on localhost → the JWKS fetches work with **no tunnel**.
+- [ ] Register the tool in Moodle (manual LTI 1.3 config), and store Moodle's platform details (issuer, client_id, deployment_id, auth/token/keyset URLs) in the tool's registration store.
+- [ ] Get ONE successful `LtiResourceLinkRequest`, then **dump every claim to the page** — this is your own launch inspector (the job we'd have used saltire for).
+- [ ] Launch **as admin (Instructor)** and **as Bob (Learner)** and compare the `roles` and `context` claims.
 
 ### Saturday PM — React + session
 - [ ] After PHP validates the launch and mints a tool session, hand off to **React** (server renders a bootstrap with a session token). Understand: LTI authenticates *once*; React routing rides your tool session, not repeated launches.
@@ -162,5 +165,5 @@ Plan for this early — it's where most people lose an afternoon.
 - 1EdTech LTI 1.3 core spec + LTI Advantage (Deep Linking, AGS, NRPS) specs
 - `packbackbooks/lti-1p3-tool` on Packagist (repo: `github.com/packbackbooks/lti-1-3-php-library`, README + example app)
 - `ceLTIc/LTI-PHP` (GitHub)
-- saltire test suite: `suite.saltire.lti.app`
-- `moodlehq/moodle-docker` and/or `bitnami/moodle`
+- saltire test suite: `https://saltire.lti.app` (cloud-hosted — needs a public Moodle; not used in this local lab)
+- `erseco/alpine-moodle` (used here) and/or `moodlehq/moodle-docker`

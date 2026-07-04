@@ -4,3 +4,9 @@ localhost {
 	tls /certs/localhost.pem /certs/localhost-key.pem
 	reverse_proxy moodle:8080
 }
+
+# The LTI tool — distinct origin from the platform, like real life.
+tool.localhost {
+	tls /certs/localhost.pem /certs/localhost-key.pem
+	reverse_proxy tool:80
+}

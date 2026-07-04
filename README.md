@@ -36,13 +36,18 @@ The weekend learning curriculum lives in [LTI-WEEKEND.md](LTI-WEEKEND.md).
 # 1. Trust a local certificate authority (one-time, prompts for password/TouchID)
 mkcert -install
 
-# 2. Generate the localhost cert used by Caddy
+# 2. Generate the localhost + tool.localhost cert used by Caddy
 ./setup-certs.sh
 
-# 3. Start the stack (first boot installs Moodle — ~1–2 min)
+# 3. Tool: install deps, generate its signing key, seed local registration config
+docker run --rm -v "$PWD/tool":/app -w /app composer:2 install --ignore-platform-req=ext-*
+openssl genrsa -out tool/keys/private.key 2048 && openssl rsa -in tool/keys/private.key -pubout -out tool/keys/public.key
+cp tool/registration.example.json tool/registration.json   # then fill client_id/deployment_id after Moodle registration
+
+# 4. Start the stack (first boot installs Moodle — ~1–2 min)
 docker compose up -d
 
-# 4. Watch it come up; wait for "ready to handle connections"
+# 5. Watch it come up; wait for "ready to handle connections"
 docker compose logs -f moodle
 ```
 

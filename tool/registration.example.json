@@ -1,0 +1,10 @@
+{
+  "_comment": "Moodle platform registration. Fill client_id and deployment_id AFTER registering this tool in Moodle. Note the split-horizon URLs: auth_login_url is browser-facing (https://localhost); key_set_url and auth_token_url are fetched by the tool container over the internal Docker network (http://moodle:8080).",
+  "issuer": "https://localhost",
+  "client_id": "REPLACE_AFTER_MOODLE_REGISTRATION",
+  "deployment_id": "REPLACE_AFTER_MOODLE_REGISTRATION",
+  "auth_login_url": "https://localhost/mod/lti/auth.php",
+  "auth_token_url": "http://moodle:8080/mod/lti/token.php",
+  "key_set_url": "http://moodle:8080/mod/lti/certs.php",
+  "tool_kid": "lms-lti-tool-1"
+}

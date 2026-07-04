@@ -48,11 +48,24 @@ services:
       - moodle_html:/var/www/html
     # no host port needed; Caddy reaches it on the internal network as moodle:8080
 
+  tool:
+    image: php:8.3-cli
+    restart: unless-stopped
+    working_dir: /app
+    # dev web server; router = public/index.php, docroot = public
+    command: php -S 0.0.0.0:80 -t public public/index.php
+    volumes:
+      - ./tool:/app
+    depends_on:
+      - moodle
+    # reachable by Caddy as tool:80; reaches Moodle as http://moodle:8080
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       - moodle
+      - tool
     ports:
       - "80:80"
       - "443:443"

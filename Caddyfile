@@ -1,0 +1,6 @@
+# Terminates TLS with the mkcert-trusted cert and proxies to Moodle.
+# Caddy sets X-Forwarded-Proto=https, which Moodle trusts because SSLPROXY=true.
+localhost {
+	tls /certs/localhost.pem /certs/localhost-key.pem
+	reverse_proxy moodle:8080
+}

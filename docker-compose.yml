@@ -1,0 +1,70 @@
+name: lms-lti
+
+services:
+  db:
+    image: mariadb:12.3.2   # pinned (was :lts, a floating tag). Reproducible; no wipe needed since this is the version already running.
+    restart: unless-stopped
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb_file_per_table=1
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: moodle
+      MYSQL_USER: moodle
+      MYSQL_PASSWORD: moodle
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  moodle:
+    image: erseco/alpine-moodle:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: America/Chicago              # container OS clock
+      date_timezone: America/Chicago   # PHP date.timezone (image reads this)
+      SITE_URL: https://localhost
+      SSLPROXY: "true"                 # trust X-Forwarded-Proto from Caddy -> https wwwroot
+      DB_TYPE: mariadb
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: moodle
+      DB_USER: moodle
+      DB_PASS: moodle
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: "Moodle123!"    # meets Moodle's default password policy
+      MOODLE_EMAIL: admin@example.com
+      MOODLE_SITENAME: "LTI_Lab_Moodle"   # no spaces: the image's install script doesn't quote this
+      MOODLE_LANGUAGE: en
+    volumes:
+      - moodle_data:/var/www/moodledata
+      - moodle_html:/var/www/html
+    # no host port needed; Caddy reaches it on the internal network as moodle:8080
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - moodle
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  moodle_data:
+  moodle_html:
+  caddy_data:
+  caddy_config:

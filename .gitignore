@@ -1,0 +1,4 @@
+# Local TLS certs — NEVER commit private keys.
+# Regenerate per machine with ./setup-certs.sh (needs mkcert).
+certs/*
+!certs/.gitkeep

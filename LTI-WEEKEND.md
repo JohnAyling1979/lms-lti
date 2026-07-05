@@ -128,15 +128,16 @@ Plan for this early — it's where most people lose an afternoon.
 - [x] Moodle running in Docker (`erseco/alpine-moodle` + MariaDB + Caddy); admin login; test course "Long Test Course Name" with Bob (Student) + admin (Teacher) — both roles available.
 - [x] HTTPS via **mkcert + Caddy** at `https://localhost` (trusted CA installed, verified end-to-end). See `README.md` for run instructions.
 
-### Saturday AM — understand + first launch (fully local — Path A)
-- [ ] Re-draw the 4-hop flow from memory.
-- [ ] Stand up a minimal **PHP tool** (`packbackbooks/lti-1p3-tool`) in Docker on the **same network as Moodle**, over the existing Caddy HTTPS: `/lti/login`, `/lti/launch`, `/lti/jwks`. Both sides on localhost → the JWKS fetches work with **no tunnel**.
-- [ ] Register the tool in Moodle (manual LTI 1.3 config), and store Moodle's platform details (issuer, client_id, deployment_id, auth/token/keyset URLs) in the tool's registration store.
-- [ ] Get ONE successful `LtiResourceLinkRequest`, then **dump every claim to the page** — this is your own launch inspector (the job we'd have used saltire for).
-- [ ] Launch **as admin (Instructor)** and **as Bob (Learner)** and compare the `roles` and `context` claims.
+### Saturday AM — understand + first launch (fully local — Path A) ✅ DONE
+- [x] 4-hop flow understood (see `LAUNCH-FLOW.md` for the full diagram).
+- [x] Minimal **PHP tool** (`packbackbooks/lti-1p3-tool`, **`MessageFactory` API**) in Docker on Moodle's network: `/lti/login`, `/lti/launch`, `/lti/jwks`. JWKS fetch via **split-horizon** (`http://moodle:8080` + forwarded headers) — no tunnel.
+- [x] Registered in Moodle (manual LTI 1.3, RSA public key pasted). client_id `xHgrxkVTGHvPx25`, deployment_id `1`.
+- [x] Successful `LtiResourceLinkRequest`; claims dumped to the page (own inspector).
+- [x] Launched as admin (Instructor) and Bob (Learner) — compared `roles`/`sub`.
 
-### Saturday PM — React + session
-- [ ] After PHP validates the launch and mints a tool session, hand off to **React** (server renders a bootstrap with a session token). Understand: LTI authenticates *once*; React routing rides your tool session, not repeated launches.
+### Saturday PM — session hand-off + React ✅ DONE (went further)
+- [x] Validate launch → mint a **first-party server-side session** (Redis), set an **httpOnly `SameSite=Lax` cookie** → hand off to a **React 19 SPA** (refresh-durable; logout works). LTI authenticates once; the app rides the session.
+- [x] **Extra hardening beyond the plan:** split the tool into **3 services** — `auth` (LTI), `api` (session), `app` (UI) — on `*.lvh.me` with a shared `Domain=lvh.me` cookie, cross-origin CORS, and **real Redis** as the shared store. Per-folder `.gitignore`/Dockerfile, `caddy/` folder. This is the production-shaped (GCP LB + Cloud Run + Redis) topology.
 
 ### Sunday AM — LTI Advantage
 - [ ] **Deep Linking**: return a content item; see it become a link in the course.

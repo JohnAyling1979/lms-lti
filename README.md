@@ -57,15 +57,17 @@ docker run --rm -v "$PWD/auth":/app -w /app composer:2 install --ignore-platform
 openssl genrsa -out auth/keys/private.key 2048 && openssl rsa -in auth/keys/private.key -pubout -out auth/keys/public.key
 cp auth/registration.example.json auth/registration.json   # then fill client_id/deployment_id after Moodle registration
 
-# 4. app service: install frontend deps + build the React bundle
-docker run --rm -v "$PWD/app":/app -w /app node:22 sh -c 'npm install && npm run build'
-
-# 5. Start the stack (first boot installs Moodle — ~1–2 min)
+# 4. Start the stack (first boot installs Moodle ~1–2 min; the app container
+#    runs `npm install` itself on first start, then the Vite dev server with HMR)
 docker compose up -d
 
-# 6. Watch it come up; wait for "ready to handle connections"
+# 5. Watch it come up; wait for "ready to handle connections"
 docker compose logs -f moodle
 ```
+
+> The **app** service runs the **Vite dev server** (HMR — edit React and it hot-reloads,
+> no rebuild). In prod the SPA is `vite build` → `./dist` uploaded to a GCS bucket
+> behind the load balancer.
 
 Then open **https://localhost** (Moodle) — you should get a clean padlock (no warning).
 The tool is launched *from* Moodle; you don't visit `app.lvh.me` directly.
@@ -117,7 +119,7 @@ docker compose exec -T moodle php /var/www/html/admin/cli/cfg.php --name=timezon
 ├── caddy/               # Caddyfile + certs/ (TLS cert + key, gitignored)
 ├── auth/                # LTI service — PHP + packback; Dockerfile, public/, src/, keys/, registration
 ├── api/                 # session API — plain PHP; Dockerfile, public/, src/SessionStore.php
-├── app/                 # React UI — Vite; src/, builds to app/dist (gitignored)
+├── app/                 # React UI — Vite dev server locally (prod: build -> GCS bucket)
 ├── LTI-WEEKEND.md       # the LTI 1.3 learning curriculum
 └── README.md            # this file
 ```

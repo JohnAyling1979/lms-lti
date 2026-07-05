@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchMe, logout } from './api'
+import { fetchMe, logout, fetchRoster } from './api'
 
 // The launch establishes an httpOnly session cookie (first-party, SameSite=Lax),
 // so this SPA just asks the API who it is — and a hard refresh Just Works because
@@ -9,6 +9,9 @@ export default function App() {
   const [status, setStatus] = useState('loading') // loading | ready | nolaunch | loggedout | error
   const [user, setUser] = useState(null)
   const [error, setError] = useState(null)
+  const [roster, setRoster] = useState(null)
+  const [busy, setBusy] = useState('')       // which service call is in flight
+  const [svcError, setSvcError] = useState('')
 
   useEffect(() => {
     // idempotent GET — safe to run twice under StrictMode, no guard needed
@@ -34,6 +37,21 @@ export default function App() {
     setUser(null)
     setStatus('loggedout')
   }
+
+  const onFetchRoster = async () => {
+    setBusy('roster')
+    setSvcError('')
+    try {
+      const { members } = await fetchRoster()
+      setRoster(members)
+    } catch (e) {
+      setSvcError(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const shortRole = (r) => r.split('#').pop().split('/').pop()
 
   if (status === 'loading') return <Centered>Loading session…</Centered>
   if (status === 'loggedout')
@@ -85,12 +103,27 @@ export default function App() {
       {isInstructor ? (
         <section className="card panel-instructor">
           <h2>👩‍🏫 Instructor tools</h2>
-          <p>You can manage grades and view the roster (wired up on Sunday).</p>
           <button disabled>Sync a grade → gradebook (AGS)</button>
-          <button disabled>Fetch roster (NRPS)</button>
-          <p className="muted">
-            AGS line items endpoint: <code>{user.ags?.lineitems ?? 'not provided'}</code>
-          </p>
+          <button onClick={onFetchRoster} disabled={busy === 'roster'}>
+            {busy === 'roster' ? 'Fetching…' : 'Fetch roster (NRPS)'}
+          </button>
+          {svcError && <p className="err" style={{ padding: '.5rem .75rem' }}>{svcError}</p>}
+          {roster && (
+            <table className="roster">
+              <thead>
+                <tr><th>Name</th><th>Email</th><th>Role</th></tr>
+              </thead>
+              <tbody>
+                {roster.map((m) => (
+                  <tr key={m.user_id}>
+                    <td>{m.name}</td>
+                    <td>{m.email ?? '—'}</td>
+                    <td>{(m.roles || []).map(shortRole).join(', ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
       ) : (
         <section className="card panel-learner">

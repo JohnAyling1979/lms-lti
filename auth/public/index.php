@@ -45,16 +45,11 @@ use Packback\Lti1p3\Messages\DeepLinkingRequest;
 const ISSUER = 'https://localhost';
 const APP_URL = 'https://app.lvh.me';
 
-/**
- * A PowerNotes "project template": the graded milestones an instructor can drop
- * into a course via Deep Linking. Each becomes one LMS line item (gradebook
- * column). Together they model goal #2 — many graded assignments, one project.
- */
-const PN_MILESTONES = [
-    'outline' => ['label' => 'Research Outline', 'points' => 20, 'text' => 'Topic, thesis, and source list.'],
-    'draft' => ['label' => 'Annotated Draft', 'points' => 30, 'text' => 'First draft with notes and citations.'],
-    'final' => ['label' => 'Final Paper', 'points' => 50, 'text' => 'Completed, revised submission.'],
-];
+/** URL/id-safe slug from a human label (e.g. "Annotated Draft" -> "annotated-draft"). */
+function pnSlug(string $s): string
+{
+    return trim(strtolower(preg_replace('/[^a-z0-9]+/i', '-', $s)), '-');
+}
 
 /**
  * HTTP client for server-to-server calls to Moodle (JWKS, token, NRPS/AGS).
@@ -181,40 +176,47 @@ try {
                 $registration = $db->findRegistrationByIssuer($stash['iss']);
                 $deepLink = new LtiDeepLink($registration, $stash['deploymentId'], $stash['settings']);
 
-                $project = trim((string) ($_POST['project'] ?? '')) ?: 'PowerNotes Project';
-                $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $project)) ?: 'pn-project';
-                $chosen = (array) ($_POST['milestone'] ?? []);
+                $group = trim((string) ($_POST['group'] ?? '')) ?: 'PowerNotes Project';
+                $slug = pnSlug($group) ?: 'pn-project';
+                $assignments = json_decode((string) ($_POST['assignments'] ?? '[]'), true) ?: [];
                 if (!$stash['acceptMultiple']) {
-                    $chosen = array_slice($chosen, 0, 1);
+                    $assignments = array_slice($assignments, 0, 1);
                 }
 
-                // Each milestone -> one resource link + its own line item. All share
-                // pn_project, which models goal #2: N graded LMS activities mapping
-                // to ONE PowerNotes project. On a later launch the tool reads these
-                // custom params to know which project/milestone it's in.
+                // Each authored assignment -> one resource link + (if it has points)
+                // its own line item. All share pn_project, modelling goal #2: N graded
+                // LMS activities mapping to ONE PowerNotes project. The instructor built
+                // these in the tool wizard; the LMS just places them. On a later launch
+                // the tool reads these custom params to know which project/item it's in.
                 $resources = [];
-                foreach ($chosen as $key) {
-                    $m = PN_MILESTONES[$key] ?? null;
-                    if ($m === null) {
+                foreach ($assignments as $i => $a) {
+                    $name = trim((string) ($a['name'] ?? ''));
+                    if ($name === '') {
                         continue;
                     }
-                    $points = (float) ($_POST['points'][$key] ?? $m['points']);
-                    $title = $project . ' — ' . $m['label'];
-                    $resources[] = Resource::new()
+                    $points = (float) ($a['points'] ?? 0);
+                    $text = trim((string) ($a['text'] ?? ''));
+                    $key = pnSlug($name) ?: ('item-' . $i);
+                    $title = $group . ' — ' . $name;
+
+                    $resource = Resource::new()
                         ->setTitle($title)
-                        ->setText($m['text'])
+                        ->setText($text !== '' ? $text : null)
                         ->setUrl('https://' . $_SERVER['HTTP_HOST'] . '/lti/launch')
-                        ->setCustomParams(['pn_project' => $slug, 'pn_milestone' => $key])
-                        ->setLineItem(
+                        ->setCustomParams(['pn_project' => $slug, 'pn_milestone' => $key]);
+                    if ($points > 0) {
+                        $resource->setLineItem(
                             LtiLineitem::new()
                                 ->setScoreMaximum($points)
                                 ->setLabel($title)
                                 ->setResourceId($slug . ':' . $key)
                                 ->setTag('pn-milestone')
                         );
+                    }
+                    $resources[] = $resource;
                 }
                 if (empty($resources)) {
-                    throw new RuntimeException('pick at least one milestone');
+                    throw new RuntimeException('add at least one assignment');
                 }
 
                 $jwt = $deepLink->getResponseJwt($resources);
@@ -550,28 +552,8 @@ function buildIdentity(array $claims): array
 function deepLinkPicker(string $token, string $courseTitle, bool $acceptMultiple): string
 {
     $course = htmlspecialchars($courseTitle, ENT_QUOTES);
-    $inputType = $acceptMultiple ? 'checkbox' : 'radio';
-    $multiNote = $acceptMultiple
-        ? 'Pick the graded milestones to add — each becomes its own gradebook column.'
-        : 'This LMS placement accepts a single item — pick one milestone.';
-
-    $rows = '';
-    foreach (PN_MILESTONES as $key => $m) {
-        $k = htmlspecialchars($key, ENT_QUOTES);
-        $label = htmlspecialchars($m['label'], ENT_QUOTES);
-        $text = htmlspecialchars($m['text'], ENT_QUOTES);
-        $pts = (int) $m['points'];
-        $checked = $key === 'outline' ? 'checked' : '';
-        $rows .= <<<HTML
-            <label class="row">
-              <input type="{$inputType}" name="milestone[]" value="{$k}" {$checked}>
-              <span class="grow"><strong>{$label}</strong><br><small>{$text}</small></span>
-              <span class="pts">
-                <input type="number" name="points[{$k}]" value="{$pts}" min="1" max="1000"> pts
-              </span>
-            </label>
-            HTML;
-    }
+    $token = htmlspecialchars($token, ENT_QUOTES);
+    $multiple = $acceptMultiple ? 'true' : 'false';
 
     return <<<HTML
         <!doctype html>
@@ -580,31 +562,140 @@ function deepLinkPicker(string $token, string $courseTitle, bool $acceptMultiple
         <title>Add PowerNotes</title>
         <style>
           body { font-family: system-ui, sans-serif; color: #1c2430; margin: 0; padding: 1.5rem; background: #f4f6f9; }
-          h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
-          p.sub { color: #667085; margin: 0 0 1rem; }
-          .row { display: flex; align-items: center; gap: .75rem; background: #fff; border: 1px solid #e4e8ee;
-                 border-radius: 10px; padding: .75rem 1rem; margin-bottom: .5rem; cursor: pointer; }
-          .row .grow { flex: 1; }
-          .row small { color: #667085; }
-          .pts input { width: 4rem; font: inherit; padding: .25rem .35rem; border: 1px solid #cbd2dc; border-radius: 6px; }
-          .field { margin-bottom: 1rem; }
-          .field label { display: block; font-weight: 600; margin-bottom: .25rem; }
-          .field input { width: 100%; font: inherit; padding: .5rem; border: 1px solid #cbd2dc; border-radius: 8px; }
-          button { font: inherit; font-weight: 600; padding: .6rem 1.2rem; border: none; border-radius: 8px;
-                   background: #6d28d9; color: #fff; cursor: pointer; margin-top: .5rem; }
+          h1 { font-size: 1.2rem; margin: 0 0 .25rem; }
+          .sub { color: #667085; margin: 0 0 1rem; font-size: .9rem; }
+          .steps { display: flex; gap: .4rem; margin-bottom: 1rem; font-size: .78rem; }
+          .steps span { flex: 1; text-align: center; padding: .4rem; border-radius: 8px; background: #eef1f6; color: #667085; font-weight: 600; }
+          .steps span.on { background: #6d28d9; color: #fff; }
+          .panel { background: #fff; border: 1px solid #e4e8ee; border-radius: 12px; padding: 1.25rem; }
+          .hidden { display: none; }
+          label.lbl { display: block; font-weight: 600; margin-bottom: .25rem; }
+          input, textarea { font: inherit; padding: .5rem; border: 1px solid #cbd2dc; border-radius: 8px; width: 100%; box-sizing: border-box; }
+          .row { display: flex; gap: .6rem; align-items: flex-start; background: #f8fafc; border: 1px solid #e4e8ee;
+                 border-radius: 10px; padding: .6rem .75rem; margin-bottom: .5rem; }
+          .row .grow { flex: 1; display: grid; gap: .35rem; }
+          .row .pts { width: 4rem; flex: none; text-align: center; color: #667085; font-size: .72rem; }
+          .row .pts input { text-align: center; padding: .3rem; }
+          .row .rm { flex: none; background: none; border: none; color: #b91c1c; font-size: 1.2rem; cursor: pointer; padding: 0 .25rem; }
+          .actions { display: flex; justify-content: space-between; margin-top: 1rem; }
+          button { font: inherit; font-weight: 600; padding: .55rem 1.1rem; border: 1px solid #cbd2dc; border-radius: 8px; background: #fff; cursor: pointer; }
+          button.primary { background: #6d28d9; color: #fff; border-color: #6d28d9; }
+          button.ghost { background: none; border: 1px dashed #cbd2dc; color: #6d28d9; width: 100%; margin-top: .25rem; }
+          ul.rev { list-style: none; padding: 0; margin: .5rem 0 0; }
+          ul.rev li { background: #f8fafc; border: 1px solid #e4e8ee; border-radius: 8px; padding: .5rem .75rem; margin-bottom: .4rem; }
+          ul.rev small { color: #667085; }
         </style></head>
         <body>
-          <h1>Add PowerNotes to {$course}</h1>
-          <p class="sub">{$multiNote}</p>
-          <form method="post" action="/lti/deeplink">
-            <input type="hidden" name="dl" value="{$token}">
-            <div class="field">
-              <label for="project">Project name</label>
-              <input id="project" name="project" value="Research Paper" required>
+          <div class="steps">
+            <span class="on" id="d1">1 · Name</span>
+            <span id="d2">2 · Assignments</span>
+            <span id="d3">3 · Review</span>
+          </div>
+
+          <section class="panel" id="p1">
+            <h1>Name this assignment group</h1>
+            <p class="sub">Adding to {$course}. The group name prefixes each assignment below.</p>
+            <label class="lbl" for="group">Group name</label>
+            <input id="group" value="Research Paper" placeholder="e.g. Research Paper">
+            <div class="actions"><span></span><button class="primary" onclick="toStep(2)">Next →</button></div>
+          </section>
+
+          <section class="panel hidden" id="p2">
+            <h1>Add assignments</h1>
+            <p class="sub" id="p2sub"></p>
+            <div id="rows"></div>
+            <button class="ghost" id="addBtn" onclick="addRow()">+ Add assignment</button>
+            <div class="actions">
+              <button onclick="toStep(1)">← Back</button>
+              <button class="primary" onclick="toStep(3)">Review →</button>
             </div>
-            {$rows}
-            <button type="submit">Add to course</button>
-          </form>
+          </section>
+
+          <section class="panel hidden" id="p3">
+            <h1>Review &amp; link</h1>
+            <div id="review"></div>
+            <form id="dlForm" method="post" action="/lti/deeplink">
+              <input type="hidden" name="dl" value="{$token}">
+              <input type="hidden" name="group" id="fGroup">
+              <input type="hidden" name="assignments" id="fAssignments">
+            </form>
+            <div class="actions">
+              <button onclick="toStep(2)">← Back</button>
+              <button class="primary" onclick="submitDl()">Link to course</button>
+            </div>
+          </section>
+
+          <script>
+            var acceptMultiple = {$multiple};
+            var group = 'Research Paper';
+            var items = [{name: '', points: 20, text: ''}];
+
+            function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+            function readRows() {
+              var out = [];
+              document.querySelectorAll('#rows .row').forEach(function (r) {
+                out.push({ name: r.querySelector('.a-name').value, points: r.querySelector('.a-points').value, text: r.querySelector('.a-text').value });
+              });
+              if (out.length) items = out;
+            }
+
+            function renderRows() {
+              var html = '';
+              items.forEach(function (it, i) {
+                html += '<div class="row"><span class="grow">'
+                  + '<input class="a-name" placeholder="Assignment name" value="' + esc(it.name) + '">'
+                  + '<textarea class="a-text" rows="2" placeholder="Instructions (optional)">' + esc(it.text) + '</textarea>'
+                  + '</span><span class="pts"><input class="a-points" type="number" min="0" max="1000" value="' + esc(it.points) + '">points</span>'
+                  + (items.length > 1 ? '<button class="rm" title="remove" onclick="removeRow(' + i + ')">&times;</button>' : '')
+                  + '</div>';
+              });
+              document.getElementById('rows').innerHTML = html;
+              document.getElementById('addBtn').style.display = acceptMultiple ? '' : 'none';
+              document.getElementById('p2sub').textContent = acceptMultiple
+                ? 'Each becomes its own gradebook column. Set points to 0 for an ungraded activity.'
+                : 'This placement accepts a single item — add one assignment.';
+            }
+
+            function addRow() { readRows(); items.push({ name: '', points: 20, text: '' }); renderRows(); }
+            function removeRow(i) { readRows(); items.splice(i, 1); if (!items.length) items = [{ name: '', points: 20, text: '' }]; renderRows(); }
+
+            function pick() {
+              readRows();
+              var v = items.filter(function (it) { return String(it.name).trim() !== ''; });
+              return acceptMultiple ? v : v.slice(0, 1);
+            }
+
+            function toStep(n) {
+              readRows();
+              if (n >= 2) group = (document.getElementById('group').value || '').trim() || 'PowerNotes Project';
+              if (n === 2) renderRows();
+              if (n === 3) {
+                var v = pick();
+                if (!v.length) { alert('Add at least one assignment with a name.'); return; }
+                var html = '<p class="sub">Group: <strong>' + esc(group) + '</strong></p><ul class="rev">';
+                v.forEach(function (it) {
+                  var pts = Number(it.points) || 0;
+                  html += '<li><strong>' + esc(group) + ' — ' + esc(String(it.name).trim()) + '</strong> · '
+                    + (pts > 0 ? pts + ' pts' : 'ungraded')
+                    + (String(it.text).trim() ? '<br><small>' + esc(String(it.text).trim()) + '</small>' : '') + '</li>';
+                });
+                document.getElementById('review').innerHTML = html + '</ul>';
+              }
+              ['p1', 'p2', 'p3'].forEach(function (id, i) { document.getElementById(id).classList.toggle('hidden', (i + 1) !== n); });
+              [1, 2, 3].forEach(function (s) { document.getElementById('d' + s).classList.toggle('on', s <= n); });
+            }
+
+            function submitDl() {
+              var v = pick().map(function (it) { return { name: String(it.name).trim(), points: Number(it.points) || 0, text: String(it.text).trim() }; });
+              if (!v.length) { alert('Add at least one assignment.'); toStep(2); return; }
+              document.getElementById('fGroup').value = group;
+              document.getElementById('fAssignments').value = JSON.stringify(v);
+              document.getElementById('dlForm').submit();
+            }
+
+            renderRows();
+          </script>
         </body></html>
         HTML;
 }

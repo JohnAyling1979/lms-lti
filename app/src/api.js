@@ -32,6 +32,50 @@ export async function fetchLineitems() {
   return res.json() // { lineitems: [{ id, label, scoreMaximum }] }
 }
 
+// AGS — read existing grades for a line item (who's already been graded)
+export async function fetchResults(lineitem) {
+  const res = await fetch(`${AUTH}/services/results?lineitem=${encodeURIComponent(lineitem)}`, {
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error(`results failed (HTTP ${res.status})`)
+  return res.json() // { results: [{ userId, resultScore, resultMaximum }] }
+}
+
+// The learner's saved work for the launched placement (null if not submitted)
+export async function fetchSubmission() {
+  const res = await fetch(`${AUTH}/services/submission`, { credentials: 'include' })
+  if (!res.ok) throw new Error(`submission failed (HTTP ${res.status})`)
+  return res.json() // { submission: {content, submittedAt}|null, grade: {resultScore, resultMaximum}|null }
+}
+
+// Save the learner's work to the tool + mark the LMS activity Submitted
+export async function submitWork(content) {
+  const res = await fetch(`${AUTH}/services/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ content }),
+  })
+  if (!res.ok) throw new Error(`submit failed (HTTP ${res.status})`)
+  return res.json() // { ok, submittedAt }
+}
+
+// Instructor — the "needs grading" queue: ungraded submissions per assignment
+export async function fetchNeedsGrading() {
+  const res = await fetch(`${AUTH}/services/needsgrading`, { credentials: 'include' })
+  if (!res.ok) throw new Error(`needs-grading failed (HTTP ${res.status})`)
+  return res.json() // { items: [{ lineitem, label, resourceLinkId, needsGrading }], total }
+}
+
+// Instructor — every learner's submitted work for a placement (from the tool DB)
+export async function fetchSubmissionsFor(resourceLinkId) {
+  const res = await fetch(`${AUTH}/services/submissions?resourceLinkId=${encodeURIComponent(resourceLinkId)}`, {
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error(`submissions failed (HTTP ${res.status})`)
+  return res.json() // { submissions: [{ userId, content, submittedAt }] }
+}
+
 // AGS — push a score to an EXISTING line item for a user
 export async function syncGrade(lineitem, userId, score, scoreMaximum) {
   const res = await fetch(`${AUTH}/services/grade`, {

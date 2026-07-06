@@ -139,11 +139,11 @@ Plan for this early — it's where most people lose an afternoon.
 - [x] Validate launch → mint a **first-party server-side session** (Redis), set an **httpOnly `SameSite=Lax` cookie** → hand off to a **React 19 SPA** (refresh-durable; logout works). LTI authenticates once; the app rides the session.
 - [x] **Extra hardening beyond the plan:** split the tool into **3 services** — `auth` (LTI), `api` (session), `app` (UI) — on `*.lvh.me` with a shared `Domain=lvh.me` cookie, cross-origin CORS, and **real Redis** as the shared store. Per-folder `.gitignore`/Dockerfile, `caddy/` folder. This is the production-shaped (GCP LB + Cloud Run + Redis) topology.
 
-### Sunday AM — LTI Advantage
-- [ ] **Deep Linking**: return a content item; see it become a link in the course.
-- [ ] **AGS**: create a line item, POST a score, see it in the Moodle gradebook.
-- [ ] **NRPS**: fetch the roster.
-- [ ] Do the OAuth2 client-credentials token dance at least once and understand it.
+### Sunday AM — LTI Advantage ✅ DONE
+- [x] **Deep Linking**: picker returns N content items with line items; Moodle creates the graded activities on save (one PowerNotes project → 3 milestone activities + gradebook columns).
+- [x] **AGS**: list tool-owned line items (`getLineItems`), POST a score (`putGrade`) → verified in `mdl_grade_grades` (Bob 20/20 on Research Outline).
+- [x] **NRPS**: fetch the roster.
+- [x] OAuth2 client-credentials token dance runs inside `LtiServiceConnector` on every NRPS/AGS call (tool-key-signed JWT → bearer token).
 
 ### Sunday PM — consolidate + PowerNotes fit
 - [ ] (Optional, expert move) Rebuild raw `id_token` validation by hand with a JOSE lib to cement it.

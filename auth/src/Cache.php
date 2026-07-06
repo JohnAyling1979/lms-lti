@@ -71,6 +71,25 @@ class Cache implements ICache
         $this->redis->del('token:' . $key);
     }
 
+    // --- deep-linking handoff -----------------------------------------------
+    // Bridges the two hops of Deep Linking: the DL launch (id_token, single-use
+    // nonce) stashes the return_url + deployment here, keyed by an opaque token
+    // carried in the content-selection form; the form submit takes it back to
+    // sign the response. Short-lived + one-time, like the nonce it replaces.
+
+    public function stashDeepLink(string $token, array $data): void
+    {
+        $this->redis->setex('dl:' . $token, 600, json_encode($data));
+    }
+
+    public function takeDeepLink(string $token): ?array
+    {
+        $v = $this->redis->get('dl:' . $token);
+        $this->redis->del('dl:' . $token); // one-time use
+
+        return $v === false ? null : json_decode($v, true);
+    }
+
     // --- app session (auth writes; api reads the same sess:<sid> key) --------
 
     public function putSession(string $sid, array $identity): void

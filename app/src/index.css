@@ -56,9 +56,37 @@ select { font: inherit; padding: .3rem .4rem; border: 1px solid #cbd2dc; border-
 .grade-input input { width: 4.5rem; font: inherit; padding: .3rem .4rem; border: 1px solid #cbd2dc; border-radius: 6px; }
 .grade-input button { margin: 0; }
 
+.submission {
+  display: block; width: 100%; font: inherit; padding: .6rem .75rem;
+  border: 1px solid #cbd2dc; border-radius: 8px; resize: vertical; margin-bottom: .5rem;
+}
+.submission:disabled { background: #f4f6f9; color: #475467; }
+
+.grade-banner {
+  font-weight: 700; color: #0f766e; background: #ecfdf5;
+  border: 1px solid #a7f3d0; border-radius: 8px; padding: .6rem .9rem; margin: 0 0 .75rem;
+}
+
+.submission-view {
+  margin-top: .4rem; padding: .5rem .6rem; background: #f8fafc; border: 1px solid #e4e8ee;
+  border-radius: 6px; white-space: pre-wrap; max-width: 22rem; font-size: .85rem; color: #1c2430;
+}
+
+.notice {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+  padding: .75rem 1rem; margin-bottom: 1rem; font-size: .9rem;
+}
+.notice ul { margin: .4rem 0 0; padding-left: 1.2rem; }
+.notice li { margin: .15rem 0; }
+.notice .link { margin-left: 0; color: #92400e; font-weight: 600; }
+.notice .link:hover { color: #1c2430; }
+
 .roster { width: 100%; border-collapse: collapse; margin-top: .75rem; font-size: .9rem; }
 .roster th { text-align: left; color: #667085; font-weight: 600; padding: .3rem .5rem; border-bottom: 1px solid #e4e8ee; }
 .roster td { padding: .3rem .5rem; border-bottom: 1px solid #f0f2f5; }
+/* Fixed row height so a row doesn't jump when its cell swaps between the score
+   input and the "✓ score" text (border-box: height includes the padding). */
+.roster tbody td { height: 2.5rem; }
 code { background: #eef1f6; padding: .1rem .35rem; border-radius: 4px; font-size: .85em; }
 
 summary { cursor: pointer; font-weight: 600; }

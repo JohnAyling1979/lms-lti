@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchMe, logout, fetchRoster, fetchLineitems, syncGrade } from './api'
+import { fetchMe, logout, fetchRoster, fetchLineitems, fetchResults, fetchSubmissionsFor, fetchNeedsGrading, syncGrade, fetchSubmission, submitWork } from './api'
 
 // The launch establishes an httpOnly session cookie (first-party, SameSite=Lax),
 // so this SPA just asks the API who it is — and a hard refresh Just Works because
@@ -13,9 +13,15 @@ export default function App() {
   const [assignments, setAssignments] = useState(null) // line items the tool owns
   const [lineitem, setLineitem] = useState('')         // selected line item id (url)
   const [scores, setScores] = useState({})   // userId -> entered score (string)
+  const [submissions, setSubmissions] = useState({}) // userId -> {content, submittedAt} for the selected assignment
+  const [needsGrading, setNeedsGrading] = useState({ items: [], total: 0 }) // the instructor "to grade" queue
   const [graded, setGraded] = useState({})   // `${lineitem}|${userId}` -> posted score
   const [busy, setBusy] = useState('')       // which service call is in flight
   const [svcError, setSvcError] = useState('')
+  const [submitted, setSubmitted] = useState(false) // learner turned in their work
+  const [submittedAt, setSubmittedAt] = useState(null)
+  const [content, setContent] = useState('')        // the learner's work (lives in the tool)
+  const [myGrade, setMyGrade] = useState(null)       // the learner's own grade, if graded
 
   useEffect(() => {
     // idempotent GET — safe to run twice under StrictMode, no guard needed
@@ -28,6 +34,22 @@ export default function App() {
         }
         setUser(data.user)
         setStatus('ready')
+        // A learner's work + submitted state live in the tool, so read them back
+        // — that's what makes "Submitted" survive a refresh (AGS can't tell us).
+        if (data.user.role === 'learner') {
+          const { submission, grade } = await fetchSubmission()
+          if (submission) {
+            setSubmitted(true)
+            setSubmittedAt(submission.submittedAt)
+            setContent(submission.content || '')
+          }
+          if (grade) setMyGrade(grade)
+        }
+        // Instructors get a "needs grading" notice on launch — the alert Moodle
+        // won't send, computed by the tool from its own submissions vs AGS grades.
+        if (data.user.role === 'instructor') {
+          setNeedsGrading(await fetchNeedsGrading())
+        }
       } catch (e) {
         setError(e.message)
         setStatus('error')
@@ -59,13 +81,86 @@ export default function App() {
   const isLearner = (m) => (m.roles || []).some((r) => shortRole(r) === 'Learner')
   const selected = (assignments || []).find((a) => a.id === lineitem)
 
+  // Read existing grades (AGS results) for a line item and fold them into
+  // `graded` so learners who already have a score show "✓ score/max" — whether
+  // graded here or straight in Moodle.
+  const loadResults = async (lineitemId) => {
+    if (!lineitemId) return
+    try {
+      const { results } = await fetchResults(lineitemId)
+      setGraded((g) => {
+        const next = { ...g }
+        for (const r of results) {
+          if (r.resultScore != null) {
+            next[`${lineitemId}|${r.userId}`] = `${r.resultScore}/${r.resultMaximum ?? ''}`
+          }
+        }
+        return next
+      })
+    } catch (e) {
+      setSvcError(e.message)
+    }
+  }
+
+  // The learners' submitted work for a placement — read from the tool's DB
+  // (the LMS never has it), keyed by the line item's resourceLinkId.
+  const loadSubmissions = async (resourceLinkId) => {
+    if (!resourceLinkId) { setSubmissions({}); return }
+    try {
+      const { submissions: list } = await fetchSubmissionsFor(resourceLinkId)
+      setSubmissions(Object.fromEntries(list.map((s) => [s.userId, s])))
+    } catch (e) {
+      setSvcError(e.message)
+    }
+  }
+
   const onFetchAssignments = async () => {
     setBusy('assignments')
     setSvcError('')
     try {
       const { lineitems } = await fetchLineitems()
       setAssignments(lineitems)
-      if (lineitems.length && !lineitem) setLineitem(lineitems[0].id)
+      const first = lineitems.length && !lineitem ? lineitems[0] : lineitems.find((a) => a.id === lineitem)
+      if (first) {
+        setLineitem(first.id)
+        await loadResults(first.id)
+        await loadSubmissions(first.resourceLinkId)
+      }
+    } catch (e) {
+      setSvcError(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const onSelectAssignment = (id) => {
+    setLineitem(id)
+    setScores({})       // clear editable inputs for the newly selected assignment
+    loadResults(id)     // show which learners it already has grades for
+    loadSubmissions((assignments || []).find((a) => a.id === id)?.resourceLinkId)
+  }
+
+  const loadNeedsGrading = async () => {
+    try {
+      setNeedsGrading(await fetchNeedsGrading())
+    } catch (e) {
+      setSvcError(e.message)
+    }
+  }
+
+  // Jump straight from the notice to grading an assignment: load roster if
+  // needed, select the assignment, and pull its submissions + grades.
+  const onReviewAssignment = async (item) => {
+    setBusy('review:' + item.resourceLinkId)
+    setSvcError('')
+    try {
+      let list = assignments
+      if (!list) { list = (await fetchLineitems()).lineitems; setAssignments(list) }
+      if (!roster) { setRoster((await fetchRoster()).members) }
+      setLineitem(item.lineitem)
+      setScores({})
+      await loadResults(item.lineitem)
+      await loadSubmissions(item.resourceLinkId)
     } catch (e) {
       setSvcError(e.message)
     } finally {
@@ -87,6 +182,21 @@ export default function App() {
     try {
       await syncGrade(selected.id, userId, score, max)
       setGraded((g) => ({ ...g, [`${selected.id}|${userId}`]: `${score}/${max}` }))
+      loadNeedsGrading() // one fewer to grade — refresh the notice
+    } catch (e) {
+      setSvcError(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const onSubmit = async () => {
+    setBusy('submit')
+    setSvcError('')
+    try {
+      const { submittedAt } = await submitWork(content)
+      setSubmitted(true)
+      setSubmittedAt(submittedAt)
     } catch (e) {
       setSvcError(e.message)
     } finally {
@@ -145,6 +255,25 @@ export default function App() {
         <section className="card panel-instructor">
           <h2>👩‍🏫 Instructor tools</h2>
 
+          {needsGrading.total > 0 && (
+            <div className="notice">
+              🔔 <strong>{needsGrading.total}</strong> submission{needsGrading.total > 1 ? 's' : ''} awaiting grading
+              <ul>
+                {needsGrading.items.map((it) => (
+                  <li key={it.resourceLinkId}>
+                    <button
+                      className="link"
+                      onClick={() => onReviewAssignment(it)}
+                      disabled={busy === 'review:' + it.resourceLinkId}
+                    >
+                      {it.label}
+                    </button>{' '}— {it.needsGrading} to grade
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="toolbar">
             <button onClick={onFetchAssignments} disabled={busy === 'assignments'}>
               {busy === 'assignments' ? 'Fetching…' : 'Fetch assignments (AGS)'}
@@ -160,7 +289,7 @@ export default function App() {
           {assignments && assignments.length > 0 && (
             <p className="muted">
               Grade for assignment:{' '}
-              <select value={lineitem} onChange={(e) => setLineitem(e.target.value)}>
+              <select value={lineitem} onChange={(e) => onSelectAssignment(e.target.value)}>
                 {assignments.map((a) => (
                   <option key={a.id} value={a.id}>{a.label} (max {a.scoreMaximum})</option>
                 ))}
@@ -173,16 +302,26 @@ export default function App() {
           {roster && (
             <table className="roster">
               <thead>
-                <tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
+                <tr><th>Name</th><th>Role</th><th>Submission</th><th></th></tr>
               </thead>
               <tbody>
                 {roster.map((m) => {
                   const key = selected ? `${selected.id}|${m.user_id}` : null
+                  const sub = submissions[m.user_id]
                   return (
                     <tr key={m.user_id}>
                       <td>{m.name}</td>
-                      <td>{m.email ?? '—'}</td>
                       <td>{(m.roles || []).map(shortRole).join(', ')}</td>
+                      <td>
+                        {isLearner(m) && (sub ? (
+                          <details>
+                            <summary>📄 View</summary>
+                            <div className="submission-view">{sub.content || <em>(empty)</em>}</div>
+                          </details>
+                        ) : selected ? (
+                          <span className="muted">—</span>
+                        ) : null)}
+                      </td>
                       <td>
                         {isLearner(m) && key && graded[key] != null && (
                           <span className="muted">✓ {graded[key]}</span>
@@ -219,8 +358,44 @@ export default function App() {
       ) : (
         <section className="card panel-learner">
           <h2>🎓 Your work</h2>
-          <p>You're enrolled as a learner. Your submissions would appear here.</p>
-          <button disabled>Submit</button>
+          <p>
+            You're working on <strong>{user.resourceLink?.title ?? 'this assignment'}</strong>.
+            Your work is stored in the tool — the LMS only receives your grade.
+          </p>
+          {myGrade ? (
+            <>
+              <p className="grade-banner">✓ Graded: {myGrade.resultScore}/{myGrade.resultMaximum ?? '—'}</p>
+              {content ? (
+                <>
+                  <p className="muted">Your submission:</p>
+                  <textarea className="submission" rows={5} value={content} disabled readOnly />
+                </>
+              ) : (
+                <p className="muted">No submission was recorded for this activity.</p>
+              )}
+            </>
+          ) : (
+            <>
+              <textarea
+                className="submission"
+                rows={5}
+                value={content}
+                disabled={submitted}
+                placeholder="Write your response here…"
+                onChange={(e) => setContent(e.target.value)}
+              />
+              {submitted ? (
+                <p className="muted">
+                  ✓ Submitted{submittedAt ? ` ${new Date(submittedAt).toLocaleString()}` : ''} — awaiting your instructor's grade.
+                </p>
+              ) : (
+                <button onClick={onSubmit} disabled={busy === 'submit' || content.trim() === ''}>
+                  {busy === 'submit' ? 'Submitting…' : 'Submit'}
+                </button>
+              )}
+            </>
+          )}
+          {svcError && <p className="err" style={{ padding: '.5rem .75rem' }}>{svcError}</p>}
         </section>
       )}
 

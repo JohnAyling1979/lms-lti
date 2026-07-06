@@ -49,6 +49,21 @@ export default function App() {
         // won't send, computed by the tool from its own submissions vs AGS grades.
         if (data.user.role === 'instructor') {
           setNeedsGrading(await fetchNeedsGrading())
+          // Launched from a specific assignment (its own AGS lineitem)? Drop the
+          // instructor straight into grading it. Launched from the course-level
+          // "Sign on" (no specific lineitem)? Leave the whole-course dashboard.
+          const launched = data.user.ags?.lineitem
+          if (launched) {
+            const { lineitems } = await fetchLineitems()
+            setAssignments(lineitems)
+            setRoster((await fetchRoster()).members)
+            const item = lineitems.find((a) => a.id === launched)
+            if (item) {
+              setLineitem(item.id)
+              await loadResults(item.id)
+              await loadSubmissions(item.resourceLinkId)
+            }
+          }
         }
       } catch (e) {
         setError(e.message)

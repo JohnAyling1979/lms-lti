@@ -1,5 +1,5 @@
 {
-  "_comment": "Moodle platform registration. Fill client_id and deployment_id AFTER registering this tool in Moodle. Note the split-horizon URLs: auth_login_url is browser-facing (https://localhost); key_set_url and auth_token_url are fetched by the tool container over the internal Docker network (http://moodle:8080).",
+  "_comment": "Seed input for the registrations table (the runtime source of truth is tool-db). Copy to registration.json, fill client_id + deployment_id AFTER registering this tool in Moodle, then load it: `docker compose exec auth php bin/seed.php`. Split-horizon URLs: auth_login_url is browser-facing (https://localhost); key_set_url and auth_token_url are fetched by the tool container over the internal Docker network (http://moodle:8080).",
   "issuer": "https://localhost",
   "client_id": "REPLACE_AFTER_MOODLE_REGISTRATION",
   "deployment_id": "REPLACE_AFTER_MOODLE_REGISTRATION",

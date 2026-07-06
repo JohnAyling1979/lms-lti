@@ -6,7 +6,8 @@ use PDO;
 
 /**
  * The tool's own database (system of record). Durable domain data lives here —
- * currently learner submissions, later registrations and (iss,sub)->user mappings.
+ * learner submissions (and registrations, via Database). Shares one connection
+ * per request via Db::pdo().
  *
  * Deliberately NOT Redis (that's for ephemeral launch state) and NOT Moodle's DB
  * (that's the Platform's — a different system). In prod this is PowerNotes' DB.
@@ -17,20 +18,7 @@ class ToolDb
 
     public function __construct()
     {
-        $host = getenv('TOOL_DB_HOST') ?: 'tool-db';
-        $name = getenv('TOOL_DB_NAME') ?: 'tool';
-        $user = getenv('TOOL_DB_USER') ?: 'tool';
-        $pass = getenv('TOOL_DB_PASS') ?: 'tool';
-
-        $this->pdo = new PDO(
-            "mysql:host={$host};dbname={$name};charset=utf8mb4",
-            $user,
-            $pass,
-            [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            ]
-        );
+        $this->pdo = Db::pdo();
     }
 
     /** Upsert a learner's work for one placement (idempotent on submission_key). */

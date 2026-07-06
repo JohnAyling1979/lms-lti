@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchMe, logout, fetchRoster } from './api'
+import { fetchMe, logout, fetchRoster, fetchLineitems, syncGrade } from './api'
 
 // The launch establishes an httpOnly session cookie (first-party, SameSite=Lax),
 // so this SPA just asks the API who it is — and a hard refresh Just Works because
@@ -10,6 +10,10 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [error, setError] = useState(null)
   const [roster, setRoster] = useState(null)
+  const [assignments, setAssignments] = useState(null) // line items the tool owns
+  const [lineitem, setLineitem] = useState('')         // selected line item id (url)
+  const [scores, setScores] = useState({})   // userId -> entered score (string)
+  const [graded, setGraded] = useState({})   // `${lineitem}|${userId}` -> posted score
   const [busy, setBusy] = useState('')       // which service call is in flight
   const [svcError, setSvcError] = useState('')
 
@@ -52,6 +56,43 @@ export default function App() {
   }
 
   const shortRole = (r) => r.split('#').pop().split('/').pop()
+  const isLearner = (m) => (m.roles || []).some((r) => shortRole(r) === 'Learner')
+  const selected = (assignments || []).find((a) => a.id === lineitem)
+
+  const onFetchAssignments = async () => {
+    setBusy('assignments')
+    setSvcError('')
+    try {
+      const { lineitems } = await fetchLineitems()
+      setAssignments(lineitems)
+      if (lineitems.length && !lineitem) setLineitem(lineitems[0].id)
+    } catch (e) {
+      setSvcError(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const onGrade = async (userId) => {
+    if (!selected) return
+    const max = selected.scoreMaximum ?? 100
+    const raw = scores[userId]
+    const score = Number(raw)
+    if (raw == null || raw === '' || Number.isNaN(score)) {
+      setSvcError('Enter a score first')
+      return
+    }
+    setBusy('grade:' + userId)
+    setSvcError('')
+    try {
+      await syncGrade(selected.id, userId, score, max)
+      setGraded((g) => ({ ...g, [`${selected.id}|${userId}`]: `${score}/${max}` }))
+    } catch (e) {
+      setSvcError(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
 
   if (status === 'loading') return <Centered>Loading session…</Centered>
   if (status === 'loggedout')
@@ -103,24 +144,74 @@ export default function App() {
       {isInstructor ? (
         <section className="card panel-instructor">
           <h2>👩‍🏫 Instructor tools</h2>
-          <button disabled>Sync a grade → gradebook (AGS)</button>
-          <button onClick={onFetchRoster} disabled={busy === 'roster'}>
-            {busy === 'roster' ? 'Fetching…' : 'Fetch roster (NRPS)'}
-          </button>
+
+          <div className="toolbar">
+            <button onClick={onFetchAssignments} disabled={busy === 'assignments'}>
+              {busy === 'assignments' ? 'Fetching…' : 'Fetch assignments (AGS)'}
+            </button>
+            <button onClick={onFetchRoster} disabled={busy === 'roster'}>
+              {busy === 'roster' ? 'Fetching…' : 'Fetch roster (NRPS)'}
+            </button>
+          </div>
+
+          {assignments && assignments.length === 0 && (
+            <p className="muted">No assignments yet — create one via <strong>Deep Linking</strong> (the "Select content" button when adding the activity).</p>
+          )}
+          {assignments && assignments.length > 0 && (
+            <p className="muted">
+              Grade for assignment:{' '}
+              <select value={lineitem} onChange={(e) => setLineitem(e.target.value)}>
+                {assignments.map((a) => (
+                  <option key={a.id} value={a.id}>{a.label} (max {a.scoreMaximum})</option>
+                ))}
+              </select>
+            </p>
+          )}
+
           {svcError && <p className="err" style={{ padding: '.5rem .75rem' }}>{svcError}</p>}
+
           {roster && (
             <table className="roster">
               <thead>
-                <tr><th>Name</th><th>Email</th><th>Role</th></tr>
+                <tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr>
               </thead>
               <tbody>
-                {roster.map((m) => (
-                  <tr key={m.user_id}>
-                    <td>{m.name}</td>
-                    <td>{m.email ?? '—'}</td>
-                    <td>{(m.roles || []).map(shortRole).join(', ')}</td>
-                  </tr>
-                ))}
+                {roster.map((m) => {
+                  const key = selected ? `${selected.id}|${m.user_id}` : null
+                  return (
+                    <tr key={m.user_id}>
+                      <td>{m.name}</td>
+                      <td>{m.email ?? '—'}</td>
+                      <td>{(m.roles || []).map(shortRole).join(', ')}</td>
+                      <td>
+                        {isLearner(m) && key && graded[key] != null && (
+                          <span className="muted">✓ {graded[key]}</span>
+                        )}
+                        {isLearner(m) && !(key && graded[key] != null) && !selected && (
+                          <span className="muted">pick an assignment</span>
+                        )}
+                        {isLearner(m) && !(key && graded[key] != null) && selected && (
+                          <span className="grade-input">
+                            <input
+                              type="number"
+                              min="0"
+                              max={selected.scoreMaximum}
+                              value={scores[m.user_id] ?? ''}
+                              placeholder={`0–${selected.scoreMaximum}`}
+                              onChange={(e) => setScores((s) => ({ ...s, [m.user_id]: e.target.value }))}
+                            />
+                            <button
+                              onClick={() => onGrade(m.user_id)}
+                              disabled={busy === 'grade:' + m.user_id || (scores[m.user_id] ?? '') === ''}
+                            >
+                              {busy === 'grade:' + m.user_id ? 'Posting…' : 'Post'}
+                            </button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}

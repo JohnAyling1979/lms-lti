@@ -50,6 +50,12 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 
 .muted { color: #667085; font-size: .85rem; }
 
+.toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }
+select { font: inherit; padding: .3rem .4rem; border: 1px solid #cbd2dc; border-radius: 6px; }
+.grade-input { display: inline-flex; gap: .35rem; align-items: center; }
+.grade-input input { width: 4.5rem; font: inherit; padding: .3rem .4rem; border: 1px solid #cbd2dc; border-radius: 6px; }
+.grade-input button { margin: 0; }
+
 .roster { width: 100%; border-collapse: collapse; margin-top: .75rem; font-size: .9rem; }
 .roster th { text-align: left; color: #667085; font-weight: 600; padding: .3rem .5rem; border-bottom: 1px solid #e4e8ee; }
 .roster td { padding: .3rem .5rem; border-bottom: 1px solid #f0f2f5; }

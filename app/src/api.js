@@ -24,3 +24,22 @@ export async function fetchRoster() {
   if (!res.ok) throw new Error(`roster failed (HTTP ${res.status})`)
   return res.json() // { members }
 }
+
+// AGS — list the tool's line items (assignments it owns)
+export async function fetchLineitems() {
+  const res = await fetch(`${AUTH}/services/lineitems`, { credentials: 'include' })
+  if (!res.ok) throw new Error(`assignments failed (HTTP ${res.status})`)
+  return res.json() // { lineitems: [{ id, label, scoreMaximum }] }
+}
+
+// AGS — push a score to an EXISTING line item for a user
+export async function syncGrade(lineitem, userId, score, scoreMaximum) {
+  const res = await fetch(`${AUTH}/services/grade`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ lineitem, userId, score, scoreMaximum }),
+  })
+  if (!res.ok) throw new Error(`grade failed (HTTP ${res.status})`)
+  return res.json() // { ok, lineitem, userId, score }
+}

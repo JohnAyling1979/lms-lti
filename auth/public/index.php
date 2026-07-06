@@ -24,6 +24,9 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use Packback\Lti1p3\Factories\MessageFactory;
 use Packback\Lti1p3\JwksEndpoint;
+use Packback\Lti1p3\LtiAssignmentsGradesService;
+use Packback\Lti1p3\LtiGrade;
+use Packback\Lti1p3\LtiLineitem;
 use Packback\Lti1p3\LtiNamesRolesProvisioningService;
 use Packback\Lti1p3\LtiOidcLogin;
 use Packback\Lti1p3\LtiServiceConnector;
@@ -153,6 +156,59 @@ try {
                 ->getMembers();
 
             jsonExit(['members' => $members]);
+
+        // ---- AGS: list the tool's OWN line items (assignments) ---------------
+        case '/services/lineitems':
+            $identity = requireSession($cache);
+            if (($identity['role'] ?? '') !== 'instructor') {
+                jsonExit(['error' => 'instructors only'], 403);
+            }
+            $ags = $identity['ags'] ?? null;
+            if (empty($ags['lineitems'])) {
+                jsonExit(['lineitems' => []]); // launch carried no AGS endpoint
+            }
+            $registration = $db->findRegistrationByIssuer($identity['iss']);
+            $connector = new LtiServiceConnector($cache, platformHttpClient());
+            $items = (new LtiAssignmentsGradesService($connector, $registration, $ags))->getLineItems();
+            jsonExit(['lineitems' => array_map(fn ($li) => [
+                'id' => $li['id'] ?? null,
+                'label' => $li['label'] ?? null,
+                'scoreMaximum' => $li['scoreMaximum'] ?? null,
+            ], $items)]);
+
+        // ---- AGS: push a score to an EXISTING line item (instructors) --------
+        case '/services/grade':
+            $identity = requireSession($cache);
+            if (($identity['role'] ?? '') !== 'instructor') {
+                jsonExit(['error' => 'instructors only'], 403);
+            }
+            $ags = $identity['ags'] ?? null;
+            $body = json_decode(file_get_contents('php://input') ?: '{}', true) ?: [];
+            $lineitemUrl = (string) ($body['lineitem'] ?? '');
+            $userId = (string) ($body['userId'] ?? '');
+            $score = (float) ($body['score'] ?? 0);
+            $scoreMaximum = (float) ($body['scoreMaximum'] ?? 100);
+            if ($lineitemUrl === '' || $userId === '') {
+                jsonExit(['error' => 'lineitem and userId are required'], 400);
+            }
+
+            $registration = $db->findRegistrationByIssuer($identity['iss']);
+            $connector = new LtiServiceConnector($cache, platformHttpClient());
+
+            // Post to the EXISTING line item (a real assignment, created via deep
+            // linking). No hardcoded column — the tool grades an item it owns.
+            (new LtiAssignmentsGradesService($connector, $registration, $ags))->putGrade(
+                LtiGrade::new()
+                    ->setScoreGiven($score)
+                    ->setScoreMaximum($scoreMaximum)
+                    ->setActivityProgress('Completed')
+                    ->setGradingProgress('FullyGraded')
+                    ->setTimestamp(date('c'))
+                    ->setUserId($userId),
+                LtiLineitem::new()->setId($lineitemUrl)
+            );
+
+            jsonExit(['ok' => true, 'lineitem' => $lineitemUrl, 'userId' => $userId, 'score' => $score]);
 
         default:
             http_response_code(404);

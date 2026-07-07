@@ -1,0 +1,42 @@
+# Production override for the test.powernotes.com demo VM. Layer it on the base:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Only the services that differ are listed; db, redis, tool-db are inherited
+# unchanged. All the *.powernotes.com hostnames live here + in Caddyfile.prod.
+
+services:
+  moodle:
+    environment:
+      SITE_URL: https://moodle.test.powernotes.com   # merges over the base env
+
+  auth:
+    environment:
+      LTI_ISSUER: https://moodle.test.powernotes.com
+      APP_URL: https://app.test.powernotes.com
+      PLATFORM_HOST: moodle.test.powernotes.com       # split-horizon shim target
+      COOKIE_DOMAIN: test.powernotes.com              # shared parent for the session cookie
+
+  api:
+    environment:
+      APP_URL: https://app.test.powernotes.com
+      COOKIE_DOMAIN: test.powernotes.com
+
+  # Build the SPA once (with the real API/AUTH URLs baked in) into the shared
+  # app_dist volume, then exit. Caddy serves the static files from there.
+  app:
+    command: sh -c 'npm ci && VITE_API_URL=https://api.test.powernotes.com VITE_AUTH_URL=https://auth.test.powernotes.com npm run build && rm -rf /dist/* && cp -r dist/. /dist/'
+    restart: "no"
+    volumes:
+      - app_dist:/dist
+
+  # Real Let's Encrypt TLS (Caddyfile.prod) + serve the built SPA from app_dist.
+  # The base Caddyfile/certs mounts are still present but unused by this command.
+  caddy:
+    command: caddy run --config /etc/caddy/Caddyfile.prod --adapter caddyfile
+    volumes:
+      - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile.prod:ro
+      - app_dist:/srv/app:ro
+
+volumes:
+  app_dist:

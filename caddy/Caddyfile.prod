@@ -1,0 +1,32 @@
+# Production Caddyfile for the test.powernotes.com demo VM.
+# Caddy provisions + renews Let's Encrypt certs automatically for each public
+# hostname over HTTP-01 (needs ports 80 + 443 open). No local certs, no mkcert.
+
+{
+	# Let's Encrypt account email (for expiry notices). Change if you like.
+	email admin@powernotes.com
+}
+
+# Moodle (the LTI Platform). Caddy terminates TLS; Moodle trusts
+# X-Forwarded-Proto=https because SSLPROXY=true.
+moodle.test.powernotes.com {
+	reverse_proxy moodle:8080
+}
+
+# auth — the LTI service (login, launch, jwks, deeplink, /services/*).
+auth.test.powernotes.com {
+	reverse_proxy auth:80
+}
+
+# api — the session API (/api/me, /api/logout).
+api.test.powernotes.com {
+	reverse_proxy api:80
+}
+
+# app — the React SPA, served as static files built into the app_dist volume.
+# try_files sends unknown paths to index.html for client-side routing.
+app.test.powernotes.com {
+	root * /srv/app
+	try_files {path} /index.html
+	file_server
+}

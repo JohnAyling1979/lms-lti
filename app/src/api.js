@@ -4,8 +4,10 @@
 //   cross-origin (app.lvh.me and api.lvh.me are same-SITE, so a Lax cookie is sent)
 // The api must reply with Access-Control-Allow-Origin: https://app.lvh.me and
 // Access-Control-Allow-Credentials: true, or the browser hides the response.
-const API = 'https://api.lvh.me'     // session API
-const AUTH = 'https://auth.lvh.me'   // LTI + LMS service calls (holds the tool key)
+// Build-time config (Vite VITE_* env), with local-dev defaults. The prod build
+// (docker-compose.prod.yml) sets these to the real *.powernotes.com hosts.
+const API = import.meta.env.VITE_API_URL || 'https://api.lvh.me'     // session API
+const AUTH = import.meta.env.VITE_AUTH_URL || 'https://auth.lvh.me'  // LTI + LMS service calls (holds the tool key)
 
 export async function fetchMe() {
   const res = await fetch(`${API}/api/me`, { credentials: 'include' })

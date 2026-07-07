@@ -17,7 +17,8 @@ require __DIR__ . '/../src/SessionStore.php';
 use App\SessionStore;
 
 // --- CORS: allow the UI origin to make credentialed requests ---------------
-header('Access-Control-Allow-Origin: https://app.lvh.me'); // exact origin, never '*'
+$appUrl = getenv('APP_URL') ?: 'https://app.lvh.me';
+header('Access-Control-Allow-Origin: ' . $appUrl); // exact origin, never '*'
 header('Access-Control-Allow-Credentials: true');
 header('Vary: Origin');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -51,7 +52,7 @@ switch ($path) {
         setcookie('pn_session', '', [
             'expires' => time() - 3600,
             'path' => '/',
-            'domain' => 'lvh.me',
+            'domain' => getenv('COOKIE_DOMAIN') ?: 'lvh.me',
             'secure' => true,
             'httponly' => true,
             'samesite' => 'Lax',

@@ -42,8 +42,12 @@ use Packback\Lti1p3\LtiOidcLogin;
 use Packback\Lti1p3\LtiServiceConnector;
 use Packback\Lti1p3\Messages\DeepLinkingRequest;
 
-const ISSUER = 'https://localhost';
-const APP_URL = 'https://app.lvh.me';
+// Environment-driven, with local-dev defaults. In the cloud these become the
+// real *.powernotes.com hosts (see docker-compose.prod.yml).
+define('ISSUER', getenv('LTI_ISSUER') ?: 'https://localhost');    // = Moodle's SITE_URL / iss
+define('APP_URL', getenv('APP_URL') ?: 'https://app.lvh.me');     // SPA origin (redirect target + CORS)
+define('PLATFORM_HOST', getenv('PLATFORM_HOST') ?: 'localhost');  // Moodle's public host (split-horizon shim)
+define('COOKIE_DOMAIN', getenv('COOKIE_DOMAIN') ?: 'lvh.me');     // shared parent for the session cookie
 
 /** URL/id-safe slug from a human label (e.g. "Annotated Draft" -> "annotated-draft"). */
 function pnSlug(string $s): string
@@ -66,11 +70,11 @@ function platformHttpClient(): Client
     $stack = HandlerStack::create();
     $stack->push(Middleware::mapRequest(function ($r) {
         $uri = $r->getUri();
-        if ($uri->getHost() === 'localhost') {
+        if ($uri->getHost() === PLATFORM_HOST) {
             $r = $r->withUri($uri->withScheme('http')->withHost('moodle')->withPort(8080));
         }
 
-        return $r->withHeader('Host', 'localhost')->withHeader('X-Forwarded-Proto', 'https');
+        return $r->withHeader('Host', PLATFORM_HOST)->withHeader('X-Forwarded-Proto', 'https');
     }));
 
     return new Client(['handler' => $stack]);
@@ -143,7 +147,7 @@ try {
             setcookie('pn_session', $sid, [
                 'expires' => 0,
                 'path' => '/',
-                'domain' => 'lvh.me',
+                'domain' => COOKIE_DOMAIN,
                 'secure' => true,
                 'httponly' => true,
                 'samesite' => 'Lax',

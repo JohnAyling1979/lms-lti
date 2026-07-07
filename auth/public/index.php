@@ -157,9 +157,15 @@ try {
             exit;
 
         // ---- This tool's public keyset ---------------------------------------
+        // Just publishes the tool's public key(s) from its own keypair — it does
+        // NOT depend on any platform registration (a platform fetches this DURING
+        // registration, before a row exists). The kid must match what the tool
+        // signs with (deep-linking responses / client assertions).
         case '/lti/jwks':
             header('Content-Type: application/json');
-            echo json_encode(JwksEndpoint::fromIssuer($db, ISSUER)->getPublicJwks(), JSON_UNESCAPED_SLASHES);
+            $kid = getenv('TOOL_KID') ?: 'lms-lti-tool-1';
+            $privateKey = file_get_contents(__DIR__ . '/../keys/private.key');
+            echo json_encode(JwksEndpoint::new([$kid => $privateKey])->getPublicJwks(), JSON_UNESCAPED_SLASHES);
             exit;
 
         // ---- Deep Linking: instructor picks content, we return signed items --
